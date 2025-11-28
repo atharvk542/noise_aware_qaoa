@@ -83,8 +83,8 @@ def main():
         depth=2,
         num_shots=512,  # Reduced for demo speed
         max_iterations=20,  # Reduced for demo speed
-        spsa_a=0.1,
-        spsa_c=0.01,
+        spsa_a=0.15,
+        spsa_c=0.015,
         adaptive_depth=False,  # Fixed depth for consistent demo
     )
 

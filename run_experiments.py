@@ -165,13 +165,13 @@ class ExperimentRunner:
         greedy_solution = greedy_router.solve()
         greedy_time = time.time() - greedy_start
 
-        # Run QAOA
+        # Run QAOA with optimized parameters for speed
         qaoa_params = QAOAParameters(
             depth=2,
             num_shots=1024,
-            max_iterations=50,
-            spsa_a=0.1,
-            spsa_c=0.01,
+            max_iterations=30,
+            spsa_a=0.15,
+            spsa_c=0.015,
             penalty_weight=10.0,
             adaptive_depth=True,
             max_depth=4,
@@ -230,9 +230,9 @@ class ExperimentRunner:
     def run_experiment_suite(
         self,
         network_types: List[str] = ["barbell", "grid"],
-        num_nodes_range: List[int] = [8, 10, 12],
-        num_demands_range: List[int] = [3, 4, 5],
-        gate_error_range: List[float] = [0.001, 0.005, 0.01],
+        num_nodes_range: List[int] = [8, 10],
+        num_demands_range: List[int] = [3, 4],
+        gate_error_range: List[float] = [0.001, 0.01],
         num_trials: int = 10,
     ):
         """
@@ -491,11 +491,14 @@ def main():
         "--gate-errors",
         nargs="+",
         type=float,
-        default=[0.005, 0.01],
+        default=[0.001, 0.01],
         help="Gate error rates to test",
     )
     parser.add_argument(
-        "--num-trials", type=int, default=5, help="Number of trials per configuration"
+        "--num-trials",
+        type=int,
+        default=10,
+        help="Number of trials per configuration (10 recommended for statistical power)",
     )
     parser.add_argument(
         "--output-dir", type=str, default="results", help="Output directory for results"

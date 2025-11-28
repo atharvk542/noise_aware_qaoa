@@ -52,13 +52,13 @@ class QAOAParameters:
 
     depth: int = 2  # Number of QAOA layers (p)
     num_shots: int = 1024  # Measurements per circuit evaluation
-    max_iterations: int = 100  # SPSA optimizer iterations
-    spsa_a: float = 0.1  # SPSA step size parameter
-    spsa_c: float = 0.01  # SPSA gradient estimation parameter
+    max_iterations: int = 30  # SPSA optimizer iterations (reduced for speed)
+    spsa_a: float = 0.15  # SPSA step size parameter (increased for faster convergence)
+    spsa_c: float = 0.015  # SPSA gradient estimation parameter
     penalty_weight: float = 10.0  # Constraint violation penalty
     regularization_weight: float = 0.1  # Robustness regularization
     adaptive_depth: bool = True  # Enable adaptive depth selection
-    max_depth: int = 8  # Maximum depth for adaptive mode
+    max_depth: int = 4  # Maximum depth for adaptive mode (reduced)
 
 
 @dataclass
@@ -113,8 +113,16 @@ class QAOARoutingOptimizer:
         # Build noise model for quantum circuits
         self.circuit_noise_model = self._build_circuit_noise_model()
 
-        # Initialize backend
-        self.backend = AerSimulator(noise_model=self.circuit_noise_model)
+        # Initialize backend with GPU acceleration if available
+        try:
+            self.backend = AerSimulator(
+                noise_model=self.circuit_noise_model, method="statevector", device="GPU"
+            )
+        except:
+            # Fallback to CPU with optimized statevector method
+            self.backend = AerSimulator(
+                noise_model=self.circuit_noise_model, method="statevector"
+            )
 
         # Optimization tracking
         self.cost_history = []
