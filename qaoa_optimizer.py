@@ -113,16 +113,15 @@ class QAOARoutingOptimizer:
         # Build noise model for quantum circuits
         self.circuit_noise_model = self._build_circuit_noise_model()
 
-        # Initialize backend with GPU acceleration if available
+        # Initialize backend with GPU acceleration only; fail fast if unavailable
         try:
             self.backend = AerSimulator(
                 noise_model=self.circuit_noise_model, method="statevector", device="GPU"
             )
-        except:
-            # Fallback to CPU with optimized statevector method
-            self.backend = AerSimulator(
-                noise_model=self.circuit_noise_model, method="statevector"
-            )
+        except Exception as exc:
+            raise RuntimeError(
+                "GPU-enabled AerSimulator is required. Ensure qiskit-aer-gpu-cu11 is installed and a GPU is visible."
+            ) from exc
 
         # Optimization tracking
         self.cost_history = []
