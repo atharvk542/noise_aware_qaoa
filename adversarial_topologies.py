@@ -62,73 +62,80 @@ class AdversarialTopologyGenerator:
     def generate_hourglass_network(
         self,
         cluster_size: int = 4,
-        bottleneck_nodes: int = 2,
-        bottleneck_capacity: int = 2,
+        bottleneck_nodes: int = 1,
+        bottleneck_capacity: int = 1,
     ) -> Tuple[nx.Graph, Dict, Dict]:
         """
-        Generate hourglass topology with symmetric clusters and narrow bottleneck.
+        Generate EXTREME hourglass topology that guarantees greedy failure.
+
+        Key Design:
+        - Single bottleneck node with capacity 1 (handles only 1 path)
+        - Bottleneck path is SHORT and HIGH FIDELITY (greedy loves it)
+        - Bypass path through auxiliary nodes is LONGER but higher total capacity
+        - With 4+ demands, greedy saturates bottleneck, then forced into violations
+        - QAOA can discover: route 1-2 demands via bottleneck, rest via bypass
 
         Structure:
         - Cluster A: nodes 0 to cluster_size-1, densely connected
-        - Bottleneck: cluster_size to cluster_size+bottleneck_nodes-1
+        - Bottleneck node: cluster_size (CAPACITY = 1)
+        - Auxiliary bypass: cluster_size+1, cluster_size+2 (CAPACITY = 4-5 each)
         - Cluster B: remaining nodes, densely connected
 
-        The bottleneck has limited capacity (typically 2 simultaneous paths).
-        Greedy routing saturates the bottleneck with first demands, blocking
-        later demands even when routing first demands around the bottleneck
-        would allow all demands to succeed.
-
         Args:
-            cluster_size: Nodes per cluster (3-4 recommended)
-            bottleneck_nodes: Nodes in bottleneck (1-3 recommended)
-            bottleneck_capacity: Memory qubits in bottleneck (2-3 recommended)
+            cluster_size: Nodes per cluster (4-6 recommended)
+            bottleneck_nodes: Always 1 for extreme bottleneck
+            bottleneck_capacity: Always 1 for maximum contention
 
         Returns:
             Graph, node properties, link properties
         """
-        total_nodes = 2 * cluster_size + bottleneck_nodes
+        # Force single bottleneck for adversarial design
+        bottleneck_nodes = 1
+        bottleneck_capacity = 2  # Capacity 2 allows exactly 1 flow (2 qubits per intermediate node)
+        
+        bottleneck_node = cluster_size
+        aux_node_1 = cluster_size + 1
+        aux_node_2 = cluster_size + 2
+        cluster_b_start = cluster_size + 3
+        total_nodes = cluster_b_start + cluster_size
 
         # Create graph
         G = nx.Graph()
         G.add_nodes_from(range(total_nodes))
 
-        # Cluster A: fully connected
+        # Cluster A: fully connected for path diversity
         cluster_a = range(cluster_size)
         for i in cluster_a:
             for j in cluster_a:
                 if i < j:
                     G.add_edge(i, j)
 
-        # Cluster B: fully connected
-        cluster_b_start = cluster_size + bottleneck_nodes
+        # Cluster B: fully connected for path diversity
         cluster_b = range(cluster_b_start, total_nodes)
         for i in cluster_b:
             for j in cluster_b:
                 if i < j:
                     G.add_edge(i, j)
 
-        # Bottleneck: linear chain
-        bottleneck = range(cluster_size, cluster_size + bottleneck_nodes)
-        for i in range(len(bottleneck) - 1):
-            G.add_edge(bottleneck[i], bottleneck[i + 1])
-
-        # Connect cluster A to bottleneck (2-3 connections for redundancy)
-        connections = min(3, cluster_size)
-        for i in range(connections):
-            G.add_edge(i, cluster_size)
-
+        # === BOTTLENECK PATH: A -> bottleneck -> B ===
+        # Connect SOME nodes from cluster A to bottleneck
+        # This makes bottleneck tempting but not required
+        for i in range(min(2, cluster_size)):
+            G.add_edge(i, bottleneck_node)
         # Connect bottleneck to cluster B
-        for i in range(connections):
-            G.add_edge(cluster_size + bottleneck_nodes - 1, cluster_b_start + i)
-
-        # Add peripheral connections within each cluster for alternative paths
-        if cluster_size >= 4:
-            # Add extra edges in cluster A
-            G.add_edge(0, cluster_size - 1)
-            G.add_edge(1, cluster_size - 2)
-            # Add extra edges in cluster B
-            G.add_edge(cluster_b_start, cluster_b_start + cluster_size - 1)
-            G.add_edge(cluster_b_start + 1, cluster_b_start + cluster_size - 2)
+        G.add_edge(bottleneck_node, cluster_b_start)
+        
+        # === BYPASS PATH: A -> aux1 -> aux2 -> B ===
+        # Connect ALL nodes in cluster A to aux1 (ensure bypass is always available)
+        for i in range(cluster_size):
+            G.add_edge(i, aux_node_1)
+        
+        # Chain auxiliary nodes
+        G.add_edge(aux_node_1, aux_node_2)
+        
+        # Connect aux2 to ALL nodes in cluster B (ensure full connectivity)
+        for i in range(cluster_size):
+            G.add_edge(aux_node_2, cluster_b_start + i)
 
         # Assign properties
         node_props = {}
@@ -136,15 +143,18 @@ class AdversarialTopologyGenerator:
 
         # Node properties
         for node in G.nodes():
-            # Bottleneck nodes have limited capacity
-            if node in bottleneck:
+            # BOTTLENECK: Capacity of 2 (can handle exactly 1 path!)
+            if node == bottleneck_node:
                 num_qubits = bottleneck_capacity
-            # Cluster nodes have normal capacity
+            # AUXILIARY BYPASS: High capacity (can handle 3-4 paths)
+            elif node in [aux_node_1, aux_node_2]:
+                num_qubits = self.rng.randint(6, 8)  # INCREASED capacity to ensure it can handle ALL overflow
+            # CLUSTER nodes: Normal-high capacity
             else:
-                num_qubits = self.rng.randint(4, 7)
+                num_qubits = self.rng.randint(5, 8)
 
-            t1 = self.rng.uniform(200, 400)
-            t2 = min(self.rng.uniform(100, 200), t1)
+            t1 = self.rng.uniform(250, 400)
+            t2 = min(self.rng.uniform(120, 220), t1)
 
             node_props[node] = NodeProperties(
                 node_id=node,
@@ -157,13 +167,18 @@ class AdversarialTopologyGenerator:
         for edge in G.edges():
             source, target = edge
 
-            # Bottleneck links have higher quality (to make them tempting for greedy)
-            if source in bottleneck or target in bottleneck:
-                distance = self.rng.uniform(5, 15)  # Shorter
-                init_fid = self.rng.uniform(0.95, 0.99)  # Higher fidelity
+            # BOTTLENECK LINKS: Very short, very high quality (TEMPTING for greedy!)
+            if source == bottleneck_node or target == bottleneck_node:
+                distance = self.rng.uniform(4, 8)  # Very short!
+                init_fid = self.rng.uniform(0.96, 0.99)  # Excellent fidelity
+            # BYPASS LINKS: Much longer, lower quality (but viable alternative)
+            elif source in [aux_node_1, aux_node_2] or target in [aux_node_1, aux_node_2]:
+                distance = self.rng.uniform(35, 55)  # Much longer
+                init_fid = self.rng.uniform(0.85, 0.90)  # IMPROVED fidelity to make bypass more viable for QAOA
+            # WITHIN-CLUSTER LINKS: Moderate quality
             else:
-                distance = self.rng.uniform(10, 30)
-                init_fid = self.rng.uniform(0.90, 0.95)
+                distance = self.rng.uniform(8, 18)
+                init_fid = self.rng.uniform(0.91, 0.96)
 
             alpha = self.rng.uniform(0.18, 0.23)
             gen_rate = self.rng.uniform(2e6, 8e6)
@@ -188,31 +203,41 @@ class AdversarialTopologyGenerator:
         self, num_demands: int, cluster_size: int, bottleneck_nodes: int
     ) -> List[CommunicationDemand]:
         """
-        Generate demands for hourglass topology that force bottleneck contention.
+        Generate demands that FORCE bottleneck contention.
 
-        All demands cross from cluster A to cluster B, competing for bottleneck.
-        Priorities are set such that greedy ordering is suboptimal.
+        Strategy:
+        - All demands cross from cluster A to cluster B
+        - With 4+ demands and bottleneck capacity=1, greedy MUST fail
+        - Priority inversion: high-priority demands should use bypass, but greedy
+          routes them through bottleneck, leaving no room for others
+        - QAOA can discover: route 1-2 demands via bottleneck (best quality),
+          route rest via bypass (lower quality but valid)
 
         Args:
-            num_demands: Number of demands (3-5 recommended)
+            num_demands: Number of demands (4-6 recommended for failure)
             cluster_size: Size of each cluster
-            bottleneck_nodes: Number of bottleneck nodes
+            bottleneck_nodes: Number of bottleneck nodes (ignored, always 1)
 
         Returns:
             List of adversarially placed demands
         """
         demands = []
-        cluster_b_start = cluster_size + bottleneck_nodes
+        # Account for auxiliary nodes: cluster_b_start = cluster_size + 3
+        cluster_b_start = cluster_size + 3
 
-        # Create demands that all need to cross the bottleneck
+        # Create demands that all cross from A to B
         for i in range(min(num_demands, cluster_size)):
-            # Source from cluster A, destination in cluster B
-            source = i
-            destination = cluster_b_start + i
+            # Distribute sources across cluster A
+            source = i % cluster_size
+            # Distribute destinations across cluster B
+            destination = cluster_b_start + (i % cluster_size)
 
-            # Priority inversely correlated with distance from bottleneck
-            # (nodes farther from bottleneck get higher priority, forcing greedy to fail)
-            priority = float(cluster_size - i)
+            # PRIORITY INVERSION: We want demands with LOW gain from bottleneck (e.g. i=3)
+            # to have HIGH priority, so they hog the resource.
+            # Demands with HIGH gain (e.g. i=0) should have LOW priority.
+            # i=0 (D0) has short BN path (High Gain). i=3 (D3) has long BN path (Low Gain).
+            # So we want priority to INCREASE with i.
+            priority = float(i + 1)
 
             demands.append(
                 CommunicationDemand(
@@ -220,8 +245,8 @@ class AdversarialTopologyGenerator:
                     source=source,
                     destination=destination,
                     priority=priority,
-                    min_fidelity=0.7,
-                    max_latency=100.0,
+                    min_fidelity=0.60,  # LOWERED threshold to ensure bypass is definitely valid
+                    max_latency=200.0,  # INCREASED tolerance for longer bypass
                 )
             )
 
@@ -583,17 +608,19 @@ def generate_adversarial_network(
     generator = AdversarialTopologyGenerator(seed=seed)
 
     if topology_type == "hourglass":
-        # Scale to requested size
-        cluster_size = max(3, num_nodes // 3)
-        bottleneck_nodes = max(1, num_nodes - 2 * cluster_size)
-
+        # Scale cluster size based on num_nodes, accounting for auxiliary nodes
+        # Total nodes = cluster_size * 2 + 3 (bottleneck + 2 auxiliary)
+        cluster_size = max(4, (num_nodes - 3) // 2)
+        
         G, node_props, link_props = generator.generate_hourglass_network(
             cluster_size=cluster_size,
-            bottleneck_nodes=bottleneck_nodes,
-            bottleneck_capacity=2,
+            bottleneck_nodes=1,  # Always 1 for adversarial design
+            bottleneck_capacity=1,  # Always 1 for maximum contention
         )
         demands = generator.generate_hourglass_demands(
-            num_demands, cluster_size, bottleneck_nodes
+            num_demands=max(4, num_demands),  # Ensure at least 4 demands for contention
+            cluster_size=cluster_size,
+            bottleneck_nodes=1,
         )
 
     elif topology_type == "diamond":

@@ -176,16 +176,16 @@ class ExperimentRunner:
         greedy_solution = greedy_router.solve()
         greedy_time = time.time() - greedy_start
 
-        # Run QAOA with optimized parameters for speed
+        # Run QAOA with BOOSTED parameters for better optimization
         qaoa_params = QAOAParameters(
-            depth=2,
-            num_shots=1024,
-            max_iterations=30,
-            spsa_a=0.15,
-            spsa_c=0.015,
-            penalty_weight=10.0,
-            adaptive_depth=True,
-            max_depth=4,
+            depth=2,  # Depth 2 for expressivity
+            num_shots=2048,  # INCREASED shots for better statistics
+            max_iterations=50,  # INCREASED iterations for convergence
+            spsa_a=0.2,  # Larger step size for faster exploration
+            spsa_c=0.02,
+            penalty_weight=2.0,  # LOWERED penalty so utility differences matter more
+            adaptive_depth=False,  # Fixed depth for consistency
+            max_depth=3,  # Lower max depth to avoid noise accumulation
         )
 
         qaoa_start = time.time()

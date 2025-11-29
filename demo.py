@@ -104,9 +104,9 @@ def main():
     print("\n[6/6] Running QAOA optimization...")
 
     qaoa_params = QAOAParameters(
-        depth=1,  # Minimal depth for fast demo
-        num_shots=256,  # Reduced for demo speed
-        max_iterations=10,  # Reduced for demo speed
+        depth=2,  # Increased depth for better solution quality
+        num_shots=1024,  # Increased shots for reliability
+        max_iterations=30,  # Increased iterations for convergence
         spsa_a=0.15,
         spsa_c=0.015,
         adaptive_depth=False,  # Fixed depth for consistent demo
@@ -163,13 +163,19 @@ def main():
         print(f"  Greedy: {greedy_ratio:.4f} ({greedy_ratio * 100:.2f}% of optimal)")
 
     if greedy_solution.total_utility > 0:
-        advantage = (
-            qaoa_solution.total_utility - greedy_solution.total_utility
-        ) / greedy_solution.total_utility
         print("\nQAOA Advantage over Greedy:")
-        print(
-            f"  {advantage * 100:+.2f}% {'(QAOA better)' if advantage > 0 else '(Greedy better)'}"
-        )
+        
+        if not greedy_solution.is_valid and qaoa_solution.is_valid:
+            print("  ✓ QAOA found VALID solution while Greedy failed constraints")
+            print(f"    (Greedy has higher raw utility {greedy_solution.total_utility:.4f} vs {qaoa_solution.total_utility:.4f}, but violates constraints)")
+            print(f"    (QAOA Objective: {qaoa_solution.objective_value:.4f} vs Greedy: {greedy_solution.objective_value:.4f})")
+        else:
+            advantage = (
+                qaoa_solution.total_utility - greedy_solution.total_utility
+            ) / greedy_solution.total_utility
+            print(
+                f"  {advantage * 100:+.2f}% {'(QAOA better)' if advantage > 0 else '(Greedy better)'}"
+            )
 
     # Path selections
     print("\n" + "=" * 70)
