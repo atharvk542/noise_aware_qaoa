@@ -1,13 +1,14 @@
 """
 Quick Demo: Noise-Robust QAOA for Entanglement Routing
 
-This script demonstrates the complete workflow on a small test problem.
-Use this to verify your installation and understand the system components.
+This script demonstrates the complete workflow on adversarial topology
+designed to expose weaknesses in greedy routing algorithms.
 
-Expected runtime: 2-5 minutes
+Expected runtime: 30-60 seconds
 """
 
 import numpy as np
+from adversarial_topologies import generate_adversarial_network
 from network_generation import QuantumRepeaterNetwork, CandidatePathGenerator
 from noise_models import EntanglementQualitySimulator, NoiseParameters
 from qaoa_optimizer import QAOARoutingOptimizer, QAOAParameters
@@ -16,31 +17,54 @@ from classical_baselines import SequentialGreedyRouter, IndependentShortestPathR
 
 def main():
     print("\n" + "=" * 70)
-    print("QUICK DEMO: Noise-Robust QAOA for Entanglement Routing")
+    print("DEMO: Noise-Robust QAOA for Entanglement Routing")
+    print("Using Adversarial Hourglass Topology")
     print("=" * 70)
 
-    # Step 1: Generate network
-    print("\n[1/6] Generating quantum repeater network...")
+    # Step 1: Generate adversarial hourglass network
+    print("\n[1/6] Generating adversarial hourglass network...")
+    print("  Topology: Two clusters connected by narrow bottleneck")
+    print("  Design: Greedy routing saturates bottleneck, QAOA finds alternatives")
+
+    G, node_props, link_props, demands = generate_adversarial_network(
+        topology_type="hourglass",
+        num_nodes=8,  # Smaller network for faster demo
+        num_demands=2,  # Fewer demands for speed
+        seed=42,
+    )
+
+    # Create network object from generated topology
     network = QuantumRepeaterNetwork(seed=42)
-    G = network.generate_barbell_network(cluster_size=3, bridge_width=1)
+    network.graph = G
+    network.node_props = node_props
+    network.link_props = link_props
 
     print(f"  Network: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
     print(
         f"  Average node capacity: {np.mean([p.num_memory_qubits for p in network.node_props.values()]):.1f} qubits"
     )
 
-    # Step 2: Generate demands
-    print("\n[2/6] Generating communication demands...")
-    demands = network.generate_communication_demands(num_demands=3)
+    # Identify bottleneck
+    import networkx as nx
 
-    print(f"  Demands: {len(demands)}")
+    articulation_points = list(nx.articulation_points(G))
+    if articulation_points:
+        print(f"  Bottleneck nodes: {articulation_points}")
+
+    # Step 2: Display demands
+    print("\n[2/6] Communication demands (adversarially placed)...")
+    print(f"  Demands: {len(demands)} (all cross bottleneck)")
     for d in demands:
-        print(f"    Demand {d.demand_id}: {d.source} → {d.destination}")
+        print(
+            f"    Demand {d.demand_id}: {d.source} → {d.destination} (priority: {d.priority:.1f})"
+        )
 
     # Step 3: Compute candidate paths
     print("\n[3/6] Computing candidate paths...")
     path_gen = CandidatePathGenerator(network)
-    candidate_paths = path_gen.compute_candidate_paths(demands, k=2)
+    candidate_paths = path_gen.compute_candidate_paths(
+        demands, k=2
+    )  # Just 2 paths per demand
 
     total_paths = sum(len(paths) for paths in candidate_paths.values())
     print(f"  Total candidate paths: {total_paths}")
@@ -80,9 +104,9 @@ def main():
     print("\n[6/6] Running QAOA optimization...")
 
     qaoa_params = QAOAParameters(
-        depth=2,
-        num_shots=512,  # Reduced for demo speed
-        max_iterations=20,  # Reduced for demo speed
+        depth=1,  # Minimal depth for fast demo
+        num_shots=256,  # Reduced for demo speed
+        max_iterations=10,  # Reduced for demo speed
         spsa_a=0.15,
         spsa_c=0.015,
         adaptive_depth=False,  # Fixed depth for consistent demo
@@ -134,7 +158,7 @@ def main():
             greedy_solution.total_utility / independent_solution.total_utility
         )
 
-        print(f"\nApproximation Ratios (higher is better):")
+        print("\nApproximation Ratios (higher is better):")
         print(f"  QAOA:   {qaoa_ratio:.4f} ({qaoa_ratio * 100:.2f}% of optimal)")
         print(f"  Greedy: {greedy_ratio:.4f} ({greedy_ratio * 100:.2f}% of optimal)")
 
@@ -142,7 +166,7 @@ def main():
         advantage = (
             qaoa_solution.total_utility - greedy_solution.total_utility
         ) / greedy_solution.total_utility
-        print(f"\nQAOA Advantage over Greedy:")
+        print("\nQAOA Advantage over Greedy:")
         print(
             f"  {advantage * 100:+.2f}% {'(QAOA better)' if advantage > 0 else '(Greedy better)'}"
         )

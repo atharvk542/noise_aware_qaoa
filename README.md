@@ -6,15 +6,25 @@
 
 This project implements a noise-aware Quantum Approximate Optimization Algorithm (QAOA) for solving the multi-flow entanglement routing problem in quantum repeater networks. Unlike classical greedy heuristics that route demands sequentially, our QAOA approach finds globally optimal routing configurations that account for realistic hardware noise.
 
+### Key Innovation: Adversarial Topology Design
+
+Rather than testing on arbitrary random graphs, this implementation uses **adversarial topology generation** to create network structures specifically designed to expose weaknesses in greedy sequential routing algorithms. This approach honestly characterizes the problem regime where quantum optimization provides advantage.
+
+See `ADVERSARIAL_DESIGN.md` for complete details on the scientific justification and topology families.
+
 ### Scientific Contribution
 
-The key innovation is integrating realistic quantum hardware noise models directly into the QAOA optimization loop rather than assuming ideal quantum operations. This noise-aware approach evaluates the **actual** entanglement fidelity that would be achieved on physical hardware, enabling the optimizer to find solutions that are robust to real-world imperfections.
+**Primary contribution**: Characterizes the structural properties of quantum networks (bottlenecks, resource contention, capacity-quality tradeoffs) where classical greedy heuristics fail and quantum global optimization succeeds.
+
+**Secondary contribution**: Integrates realistic quantum hardware noise models directly into the QAOA optimization loop rather than assuming ideal quantum operations. This noise-aware approach evaluates the **actual** entanglement fidelity that would be achieved on physical hardware.
+
+**Practical impact**: Provides actionable insights for network designers—if your quantum network has bottleneck structure with competing demands, quantum optimization provides value. If resources are abundant, classical methods suffice.
 
 ### Problem Statement
 
 Quantum repeater networks consist of nodes with finite memory qubits connected by quantum channels. When multiple user pairs need to establish entanglement simultaneously, their path choices interact through shared resources (memory qubits, link bandwidth), creating a complex combinatorial optimization problem.
 
-Classical greedy approaches route demands sequentially in priority order, systematically favoring early demands and missing global optima where slightly suboptimal individual choices yield better aggregate performance. This project demonstrates that QAOA can outperform these classical methods in conflict-rich network scenarios.
+Classical greedy approaches route demands sequentially in priority order, systematically favoring early demands and missing global optima where slightly suboptimal individual choices yield better aggregate performance. We demonstrate that QAOA can discover these global optima in networks with adversarial structure (bottlenecks, cut vertices, capacity-quality tradeoffs).
 
 ## Key Features
 
@@ -53,23 +63,31 @@ Classical greedy approaches route demands sequentially in priority order, system
 
 ### Experimental Design
 
-- **Network topologies**: Barbell, grid, sparse random graphs
+- **Adversarial topologies**: Hourglass (bottleneck), Diamond (capacity tradeoff), Grid (cut vertex)
+- **Demand placement**: Adversarially placed to force conflicts in greedy routing
+- **Resource constraints**: Set in critical regime (60-80% of greedy upper bound)
+- **Verification**: Each instance checked for ≥15% greedy gap and alternative solutions
 - **Parameter sweeps**: Network size, demand count, noise levels
-- **Contention analysis**: Vary resource availability
-- **Noise threshold**: Identify quantum advantage crossover point
+- **Statistical rigor**: 10 trials per config, paired tests, effect sizes, 95% CI
+
+See `ADVERSARIAL_DESIGN.md` for detailed explanation of topology design and scientific justification.
 
 ## Project Structure
 
 ```
 na_qaoa_repeaters/
-├── network_generation.py      # Network topology and path generation
+├── adversarial_topologies.py  # Adversarial network topology generation
+├── network_generation.py      # Base network classes and path generation
 ├── noise_models.py            # Noise channels and fidelity calculations
 ├── qaoa_optimizer.py          # QAOA implementation with noise-aware cost
 ├── classical_baselines.py     # Greedy and other classical algorithms
 ├── run_experiments.py         # Experimental framework and statistics
 ├── visualize_results.py       # Publication-quality plotting
+├── demo.py                    # Quick demonstration
 ├── requirements.txt           # Python dependencies
-└── README.md                  # This file
+├── README.md                  # This file
+├── ADVERSARIAL_DESIGN.md      # Detailed topology design explanation
+└── PERFORMANCE_GUIDE.md       # Optimization and runtime guide
 ```
 
 ## Installation

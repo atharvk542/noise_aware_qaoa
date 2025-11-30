@@ -34,6 +34,9 @@ from classical_baselines import (
     IndependentShortestPathRouter,
     RandomPathRouter,
 )
+from adversarial_topologies import (
+    generate_adversarial_network,
+)
 
 
 @dataclass
@@ -85,6 +88,9 @@ class ExperimentResult:
     qaoa_approximation_ratio: float  # QAOA utility / independent utility
     greedy_approximation_ratio: float
     qaoa_advantage: float  # (QAOA - Greedy) / Greedy
+    greedy_gap: float  # Gap between greedy and optimal (verification metric)
+    has_bottleneck: bool  # Topology has bottleneck structure
+    instance_valid: bool  # Instance passes adversarial verification
 
 
 class ExperimentRunner:
@@ -108,32 +114,37 @@ class ExperimentRunner:
         """
         Run single experimental trial comparing all algorithms.
 
+        Uses adversarial topology generation to create problem instances
+        designed to expose weaknesses in greedy sequential routing.
+
         Args:
             params: Experimental configuration
 
         Returns:
-            Experimental result with performance metrics
+            Experimental result with performance metrics and verification
         """
-        # Generate network
-        network = QuantumRepeaterNetwork(seed=params.seed)
+        # Generate adversarial network topology
+        # Map network types to adversarial topology generators
+        topology_map = {
+            "hourglass": "hourglass",
+            "diamond": "diamond",
+            "grid": "grid_cut_vertex",
+        }
 
-        if params.network_type == "barbell":
-            cluster_size = params.num_nodes // 3
-            bridge_width = max(1, params.num_nodes - 2 * cluster_size)
-            network.generate_barbell_network(cluster_size, bridge_width)
-        elif params.network_type == "grid":
-            rows = int(np.sqrt(params.num_nodes))
-            cols = (params.num_nodes + rows - 1) // rows
-            network.generate_grid_network(rows, cols)
-        else:  # random
-            network.generate_sparse_random_network(
-                n_nodes=params.num_nodes, edge_prob=0.3
-            )
+        topology_type = topology_map.get(params.network_type, "hourglass")
 
-        # Generate demands
-        demands = network.generate_communication_demands(
-            num_demands=params.num_demands, contention_level=params.contention_level
+        G, node_props, link_props, demands = generate_adversarial_network(
+            topology_type=topology_type,
+            num_nodes=params.num_nodes,
+            num_demands=params.num_demands,
+            seed=params.seed,
         )
+
+        # Create network object and populate with generated topology
+        network = QuantumRepeaterNetwork(seed=params.seed)
+        network.graph = G
+        network.node_props = node_props
+        network.link_props = link_props
 
         # Compute candidate paths
         path_gen = CandidatePathGenerator(network)
@@ -203,6 +214,26 @@ class ExperimentRunner:
             else 0
         )
 
+        # Compute greedy gap (percentage below optimal)
+        greedy_gap = (
+            (independent_utility - greedy_solution.total_utility) / independent_utility
+            if independent_utility > 0
+            else 0
+        )
+
+        # Verify adversarial properties
+        from adversarial_topologies import AdversarialTopologyGenerator
+
+        verifier = AdversarialTopologyGenerator(seed=params.seed)
+        verification = verifier.verify_adversarial_properties(
+            G,
+            node_props,
+            link_props,
+            demands,
+            greedy_solution=greedy_solution,
+            independent_solution=independent_solution,
+        )
+
         return ExperimentResult(
             experiment_id=len(self.results),
             network_type=params.network_type,
@@ -225,11 +256,14 @@ class ExperimentRunner:
             qaoa_approximation_ratio=qaoa_approx_ratio,
             greedy_approximation_ratio=greedy_approx_ratio,
             qaoa_advantage=qaoa_advantage,
+            greedy_gap=greedy_gap,
+            has_bottleneck=verification.has_bottleneck,
+            instance_valid=verification.is_valid_instance,
         )
 
     def run_experiment_suite(
         self,
-        network_types: List[str] = ["barbell", "grid"],
+        network_types: List[str] = ["hourglass", "diamond", "grid"],
         num_nodes_range: List[int] = [8, 10],
         num_demands_range: List[int] = [3, 4],
         gate_error_range: List[float] = [0.001, 0.01],
@@ -449,9 +483,9 @@ class ExperimentRunner:
             print(f"  95% CI: [{ci_95[0]:.4f}, {ci_95[1]:.4f}]")
 
             if p_value < 0.05:
-                print(f"  ✓ Statistically significant (p < 0.05)")
+                print("  ✓ Statistically significant (p < 0.05)")
             else:
-                print(f"  ✗ Not significant (p >= 0.05)")
+                print("  ✗ Not significant (p >= 0.05)")
 
         # Save significance results
         sig_df = pd.DataFrame(significance_results)
@@ -470,8 +504,8 @@ def main():
     parser.add_argument(
         "--network-types",
         nargs="+",
-        default=["barbell", "grid"],
-        help="Network topology types",
+        default=["hourglass", "diamond", "grid"],
+        help="Adversarial network topology types (hourglass, diamond, grid)",
     )
     parser.add_argument(
         "--num-nodes",
@@ -518,8 +552,8 @@ def main():
     )
 
     # Save and analyze
-    df = runner.save_results()
-    summary = runner.analyze_results()
+    runner.save_results()
+    runner.analyze_results()
 
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")
